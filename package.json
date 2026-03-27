@@ -1,0 +1,51 @@
+{
+  "name": "autoresearch-solana",
+  "version": "1.0.0",
+  "description": "Autonomous trading strategy research and optimization for Solana",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node-dev --respawn src/index.ts",
+    "research": "node dist/research/loop.js",
+    "paper": "DRY_RUN=true node dist/index.js",
+    "live": "DRY_RUN=false node dist/index.js",
+    "backtest": "node dist/backtest/runner.js",
+    "test": "jest"
+  },
+  "keywords": [
+    "solana",
+    "trading",
+    "autoresearch",
+    "optimization",
+    "jupiter",
+    "raydium"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@solana/web3.js": "^1.98.0",
+    "@solana/spl-token": "^0.4.0",
+    "axios": "^1.6.7",
+    "bn.js": "^5.2.1",
+    "dotenv": "^16.4.5",
+    "sqlite3": "^5.1.7",
+    "uuid": "^9.0.1",
+    "winston": "^3.12.0",
+    "ws": "^8.16.0",
+    "node-cron": "^3.0.3",
+    "mathjs": "^12.4.0"
+  },
+  "devDependencies": {
+    "@types/bn.js": "^5.1.5",
+    "@types/node": "^20.11.24",
+    "@types/node-cron": "^3.0.11",
+    "@types/uuid": "^9.0.8",
+    "@types/ws": "^8.5.10",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
