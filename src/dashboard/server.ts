@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import path from 'path';
 import { createLogger } from '../utils/logger';
@@ -13,7 +13,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '../../dashboard/dist')));
 
 // Health check endpoint
-app.get('/api/health', (req, res) => {
+app.get('/api/health', (req: Request, res: Response) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
@@ -22,7 +22,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Get bot configuration
-app.get('/api/config', (req, res) => {
+app.get('/api/config', (req: Request, res: Response) => {
   res.json({
     dryRun: process.env.DRY_RUN === 'true',
     initialCapital: parseFloat(process.env.INITIAL_CAPITAL_USD || '1000'),
@@ -36,7 +36,7 @@ app.get('/api/config', (req, res) => {
 });
 
 // Update configuration (wallet, etc.)
-app.post('/api/config', async (req, res) => {
+app.post('/api/config', async (req: Request, res: Response) => {
   const { walletAddress, privateKey } = req.body;
   
   try {
@@ -58,7 +58,7 @@ app.post('/api/config', async (req, res) => {
 });
 
 // Get trade statistics
-app.get('/api/stats', async (req, res) => {
+app.get('/api/stats', async (req: Request, res: Response) => {
   try {
     const db = getDb();
     
@@ -88,7 +88,7 @@ app.get('/api/stats', async (req, res) => {
 });
 
 // Get recent trades
-app.get('/api/trades', async (req, res) => {
+app.get('/api/trades', async (req: Request, res: Response) => {
   try {
     const limit = parseInt(req.query.limit as string) || 50;
     const db = getDb();
@@ -112,7 +112,7 @@ app.get('/api/trades', async (req, res) => {
 });
 
 // Get open positions
-app.get('/api/positions', async (req, res) => {
+app.get('/api/positions', async (req: Request, res: Response) => {
   try {
     const db = getDb();
     
@@ -135,7 +135,7 @@ app.get('/api/positions', async (req, res) => {
 });
 
 // Get experiments
-app.get('/api/experiments', async (req, res) => {
+app.get('/api/experiments', async (req: Request, res: Response) => {
   try {
     const db = getDb();
     
@@ -158,7 +158,7 @@ app.get('/api/experiments', async (req, res) => {
 });
 
 // Get logs
-app.get('/api/logs', (req, res) => {
+app.get('/api/logs', (req: Request, res: Response) => {
   const lines = parseInt(req.query.lines as string) || 100;
   
   try {
@@ -171,7 +171,7 @@ app.get('/api/logs', (req, res) => {
 });
 
 // Emergency stop
-app.post('/api/emergency-stop', (req, res) => {
+app.post('/api/emergency-stop', (req: Request, res: Response) => {
   logger.warn('EMERGENCY STOP triggered via dashboard');
   // Create stop file
   require('fs').writeFileSync('STOP', '');
@@ -179,7 +179,7 @@ app.post('/api/emergency-stop', (req, res) => {
 });
 
 // Serve dashboard UI
-app.get('*', (req, res) => {
+app.get('*', (req: Request, res: Response) => {
   res.sendFile(path.join(__dirname, '../../dashboard/dist/index.html'));
 });
 

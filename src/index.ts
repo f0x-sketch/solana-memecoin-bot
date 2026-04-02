@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import { Connection, Keypair } from '@solana/web3.js';
 import { createLogger } from './utils/logger';
 import { initializeDatabase, closeDatabase } from './utils/database';
 import { startDashboard } from './dashboard/server';

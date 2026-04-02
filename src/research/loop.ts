@@ -147,7 +147,7 @@ export class ResearchLoop {
 
       // Subscribe to price updates for signal generation
       for (const token of this.config.tokens) {
-        this.priceFeed.subscribe(token, async (priceUpdate) => {
+        this.priceFeed.subscribe(token, async (priceUpdate: {price: number}) => {
           await this.onPriceUpdate(token, priceUpdate.price);
         });
       }
