@@ -40,8 +40,11 @@ export class RateLimiter {
     // Birdeye: 60 RPM = 1 request per second
     this.configs.set('birdeye', { requestsPerMinute: 60, burstSize: 3 });
     
-    // CoinGecko: 30 RPM = 1 request per 2 seconds
+    // CoinGecko: 30 RPM = 1 request per 2 seconds (with API key)
     this.configs.set('coingecko', { requestsPerMinute: 30, burstSize: 2 });
+    
+    // CoinGecko Free Tier: 10 RPM = 1 request per 6 seconds (stricter limits)
+    this.configs.set('coingecko-free', { requestsPerMinute: 10, burstSize: 1 });
   }
 
   /**
