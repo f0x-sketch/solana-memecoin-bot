@@ -32,11 +32,18 @@ export class DataProvider {
     this.birdeye = new BirdeyeAPI();
     
     const rawCgKey = process.env.COINGECKO_API_KEY || '';
-    this.coinGeckoKey = !rawCgKey.includes('your_') && !rawCgKey.includes('xxx') ? rawCgKey : undefined;
+    // Accept any non-empty key that doesn't contain placeholder text
+    this.coinGeckoKey = rawCgKey && 
+      !rawCgKey.includes('your_') && 
+      !rawCgKey.includes('xxx') && 
+      !rawCgKey.includes('placeholder') &&
+      rawCgKey.length > 10
+        ? rawCgKey 
+        : undefined;
 
     logger.info('DataProvider initialized');
     logger.info(`Birdeye: ${this.birdeye.isEnabled() ? '✅ enabled' : '❌ not configured'}`);
-    logger.info(`CoinGecko: ${this.coinGeckoKey ? '✅ API key set' : '❌ no API key'}`);
+    logger.info(`CoinGecko: ${this.coinGeckoKey ? '✅ API key set' : '❌ no API key'} (${rawCgKey ? 'raw key present but invalid' : 'no raw key'})`);
   }
 
   /**
@@ -45,33 +52,37 @@ export class DataProvider {
   async getPrices(tokens: string[]): Promise<TokenPrice[]> {
     const errors: string[] = [];
 
-    // Try CoinGecko first (reliable with API key)
+    // Try CoinGecko with API key first (higher rate limits)
     if (this.coinGeckoKey) {
       try {
         const prices = await rateLimiter.execute(
           'coingecko',
-          () => this.fetchCoinGeckoPrices(tokens),
+          () => this.fetchCoinGeckoPrices(tokens, true),
           5
         );
         if (prices.length > 0) return prices;
       } catch (error: any) {
-        errors.push(`CoinGecko: ${error.message}`);
-        logger.warn('CoinGecko failed:', error.message);
+        errors.push(`CoinGecko (with key): ${error.message}`);
+        logger.warn('CoinGecko (with key) failed:', error.message);
       }
     }
 
-    // Fallback to Birdeye (cached + rate-limited) - DISABLED
-    // Birdeye API is having issues, using CoinGecko only
-    /*
-    if (this.birdeye.isEnabled()) {
-      try {
-        const prices = await this.birdeye.getPrices(tokens);
-        if (prices.length > 0) return prices;
-      } catch (error: any) {
-        errors.push(`Birdeye: ${error.message}`);
+    // Fallback: CoinGecko free tier (no API key, lower rate limits)
+    try {
+      logger.info('Trying CoinGecko free tier (no API key)...');
+      const prices = await rateLimiter.execute(
+        'coingecko-free',
+        () => this.fetchCoinGeckoPrices(tokens, false),
+        10
+      );
+      if (prices.length > 0) {
+        logger.info('Using CoinGecko free tier');
+        return prices;
       }
+    } catch (error: any) {
+      errors.push(`CoinGecko (free): ${error.message}`);
+      logger.warn('CoinGecko (free) failed:', error.message);
     }
-    */
 
     // No data available
     throw new Error(`All price sources failed:\n${errors.join('\n')}`);
@@ -96,7 +107,7 @@ export class DataProvider {
     return this.generateSyntheticOHLCV(token, prices[0].price, limit);
   }
 
-  private async fetchCoinGeckoPrices(tokens: string[]): Promise<TokenPrice[]> {
+  private async fetchCoinGeckoPrices(tokens: string[], useApiKey: boolean = true): Promise<TokenPrice[]> {
     const coinMap: Record<string, string> = {
       'WIF': 'dogwifcoin',
       'BONK': 'bonk', 
@@ -113,7 +124,13 @@ export class DataProvider {
     const ids = tokens.map(t => coinMap[t]).filter(Boolean).join(',');
     if (!ids) throw new Error('No valid CoinGecko IDs');
 
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_vol=true&include_24hr_change=true&x_cg_demo_api_key=${this.coinGeckoKey}`;
+    // Build URL with or without API key
+    let url: string;
+    if (useApiKey && this.coinGeckoKey) {
+      url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_vol=true&include_24hr_change=true&x_cg_demo_api_key=${this.coinGeckoKey}`;
+    } else {
+      url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_vol=true&include_24hr_change=true`;
+    }
 
     const response = await axios.get(url, { 
       timeout: 15000,

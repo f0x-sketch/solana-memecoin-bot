@@ -10,7 +10,7 @@ const app = express();
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../../dashboard/dist')));
+app.use(express.static(path.join(__dirname, '../../dashboard')));
 
 // Health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {
@@ -180,7 +180,7 @@ app.post('/api/emergency-stop', (req: Request, res: Response) => {
 
 // Serve dashboard UI
 app.get('*', (req: Request, res: Response) => {
-  res.sendFile(path.join(__dirname, '../../dashboard/dist/index.html'));
+  res.sendFile(path.join(__dirname, '../../dashboard/index.html'));
 });
 
 export function startDashboard(port: number = 3000): void {
