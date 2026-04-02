@@ -78,7 +78,7 @@ export class PriceFeed {
 
       logger.debug(`Updated ${prices.length} prices`);
     } catch (error: any) {
-      logger.error('Price fetch failed:', error.message);
+      logger.error('Price fetch failed:', error.message || error);
     }
   }
 

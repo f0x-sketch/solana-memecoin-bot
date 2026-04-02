@@ -101,6 +101,13 @@ export class DataProvider {
       'WIF': 'dogwifcoin',
       'BONK': 'bonk', 
       'PEPE': 'pepe',
+      'SOL': 'solana',
+      'JUP': 'jupiter-exchange-solana',
+      'RAY': 'raydium',
+      'JTO': 'jito-governance-token',
+      'PYTH': 'pyth-network',
+      'RENDER': 'render-token',
+      'TNSR': 'tensor',
     };
 
     const ids = tokens.map(t => coinMap[t]).filter(Boolean).join(',');
