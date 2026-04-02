@@ -9,8 +9,8 @@ dist/
 *.d.ts
 *.d.ts.map
 
-# Data
-data/
+# Data (root only)
+/data/
 *.db
 *.sqlite
 *.sqlite3
