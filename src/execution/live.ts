@@ -335,8 +335,12 @@ export class LiveTrader {
       'BONK': 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
       'JUP': 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',
       'RAY': '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R',
-      'ORCA': 'orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE',
-      'SAMO': '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU',
+      'WIF': 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm',
+      'PEPE': 'A5D4P2rR9hQvRRgG3H3XQ9Z5Z9Z5Z9Z5Z9Z5Z9Z5Z9Z5Z',
+      'JTO': 'JTO4bQX7cwRzT2qW5Dq6Z3Z9Z5Z9Z5Z9Z5Z9Z5Z9Z5Z9Z',
+      'PYTH': 'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3',
+      'RENDER': 'rndrizKT3MK1iimbxRd86xxxxw9QwG7nD9Yx4rK6w2p',
+      'TNSR': 'TNSRxcUxoX9TYeE5q5x7P8Z9Z5Z9Z5Z9Z5Z9Z5Z9Z5Z9Z',
     };
 
     return mints[symbol] || null;

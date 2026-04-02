@@ -41,18 +41,21 @@ export class ResearchLoop {
   private cronJob?: any;
 
   constructor(config?: Partial<ResearchConfig>) {
+    const envTokens = process.env.TOKENS?.split(',').map(t => t.trim()) || ['SOL', 'BONK', 'JUP', 'RAY'];
+    
     this.config = {
       experimentDurationHours: config?.experimentDurationHours || 6,
       minWinRatePct: config?.minWinRatePct || parseFloat(process.env.MIN_WIN_RATE_PCT || '55'),
       minSharpeRatio: config?.minSharpeRatio || parseFloat(process.env.MIN_SHARPE_RATIO || '1.2'),
       minTradesForEvaluation: config?.minTradesForEvaluation || 10,
-      tokens: config?.tokens || ['SOL', 'BONK', 'JUP', 'RAY'],
+      tokens: config?.tokens || envTokens,
       initialCapital: config?.initialCapital || parseFloat(process.env.INITIAL_CAPITAL_USD || '1000'),
     };
 
-    this.priceFeed = new PriceFeed(process.env.BIRDEYE_API_KEY);
+    this.priceFeed = new PriceFeed();
 
     logger.info('ResearchLoop initialized');
+    logger.info(`Tokens: ${this.config.tokens.join(', ')}`);
     logger.info(`Experiment duration: ${this.config.experimentDurationHours}h`);
     logger.info(`Min win rate: ${this.config.minWinRatePct}%`);
     logger.info(`Min Sharpe: ${this.config.minSharpeRatio}`);
@@ -159,18 +162,37 @@ export class ResearchLoop {
     }
   }
 
+  private lastSignalTime: Map<string, number> = new Map();
+  private readonly SIGNAL_COOLDOWN_MS = 30000; // 30 seconds between signals for same token
+
   /**
    * Handle price update - check for signals
    */
   private async onPriceUpdate(token: string, price: number): Promise<void> {
     if (!this.activeStrategy || !this.paperTrader) return;
 
+    // Rate limiting - don't check too frequently
+    const now = Date.now();
+    const lastTime = this.lastSignalTime.get(token) || 0;
+    if (now - lastTime < this.SIGNAL_COOLDOWN_MS) {
+      // Just update prices for exit checks
+      await this.paperTrader.updatePrices({ token, price, timestamp: new Date() });
+      return;
+    }
+
     try {
+      // Check if we can take new positions
+      if (this.paperTrader.getOpenPositionCount() >= this.activeStrategy.params.maxPositions) {
+        // Just update prices for exit checks
+        await this.paperTrader.updatePrices({ token, price, timestamp: new Date() });
+        return;
+      }
+
       // Get OHLCV data for indicators
-      const ohlcv = await this.priceFeed.getOHLCV(token, '5m', 50);
+      const ohlcv = this.priceFeed.getOHLCV(token, 50);
       
       if (ohlcv.length < 20) {
-        return; // Not enough data
+        return;
       }
 
       // Generate signal
@@ -178,26 +200,24 @@ export class ResearchLoop {
         this.activeStrategy,
         token,
         ohlcv,
-        price,
-        1000000 // Mock volume
+        price
       );
 
       if (signal) {
+        this.lastSignalTime.set(token, now);
+        
         // Calculate position size
         const state = this.paperTrader.getState();
         const size = calculatePositionSize(
           signal,
           state.capital,
-          this.config.initialCapital * 0.5, // Max position
+          this.config.initialCapital * 0.3, // Max 30% per position
           state.openPositions,
           this.activeStrategy.params.maxPositions
         );
 
-        if (size > 0) {
-          // Update signal with size
+        if (size >= 20) { // Minimum $20 trade
           signal.size = size;
-
-          // Enter paper trade
           await this.paperTrader.enterTrade(signal, size);
         }
       }

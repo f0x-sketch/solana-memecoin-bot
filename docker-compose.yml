@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  solana-bot:
+    build: .
+    container_name: solana-trading-bot
+    restart: unless-stopped
+    
+    environment:
+      - NODE_ENV=production
+      - DRY_RUN=${DRY_RUN:-true}
+      - INITIAL_CAPITAL_USD=${INITIAL_CAPITAL_USD:-1000}
+      - COINGECKO_API_KEY=${COINGECKO_API_KEY:-CG-7uFU5Yj1nt6TcXxvgJN2azrZ}
+      - SOLANA_WALLET_ADDRESS=${SOLANA_WALLET_ADDRESS:-}
+      - SOLANA_PRIVATE_KEY=${SOLANA_PRIVATE_KEY:-}
+      - MAX_POSITION_SIZE_USD=${MAX_POSITION_SIZE_USD:-200}
+      - MAX_POSITIONS=${MAX_POSITIONS:-2}
+      - STOP_LOSS_PCT=${STOP_LOSS_PCT:-2}
+      - TAKE_PROFIT_PCT=${TAKE_PROFIT_PCT:-3}
+      - MAX_DAILY_LOSS_PCT=${MAX_DAILY_LOSS_PCT:-5}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    
+    ports:
+      - "3000:3000"
+    
+    networks:
+      - bot-network
+    
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Redis for caching (future enhancement)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: solana-bot-redis
+  #   restart: unless-stopped
+  #   volumes:
+  #     - redis-data:/data
+  #   networks:
+  #     - bot-network
+
+networks:
+  bot-network:
+    driver: bridge
+
+volumes:
+  bot-data:
+  bot-logs:
+  # redis-data:

@@ -3,9 +3,6 @@ import { Strategy, StrategyParams, Signal } from './types';
 
 const logger = createLogger('SignalEngine');
 
-/**
- * Technical Analysis Indicators
- */
 interface PriceData {
   timestamp: number;
   open: number;
@@ -15,18 +12,18 @@ interface PriceData {
   volume: number;
 }
 
-/**
- * Calculate RSI
- */
+// Track last signal time per token to prevent spam
+const lastSignalTime: Map<string, number> = new Map();
+const MIN_SIGNAL_INTERVAL = 300000; // 5 minutes between signals
+
 function calculateRSI(prices: number[], period: number = 14): number {
   if (prices.length < period + 1) return 50;
 
   let gains = 0;
   let losses = 0;
 
-  // Initial average
-  for (let i = 1; i <= period; i++) {
-    const change = prices[prices.length - i] - prices[prices.length - i - 1];
+  for (let i = prices.length - period; i < prices.length; i++) {
+    const change = prices[i] - prices[i - 1];
     if (change > 0) gains += change;
     else losses -= change;
   }
@@ -40,24 +37,15 @@ function calculateRSI(prices: number[], period: number = 14): number {
   return 100 - 100 / (1 + rs);
 }
 
-/**
- * Calculate Simple Moving Average
- */
 function calculateSMA(prices: number[], period: number): number {
   if (prices.length < period) return prices[prices.length - 1];
-  const sum = prices.slice(-period).reduce((a, b) => a + b, 0);
-  return sum / period;
+  return prices.slice(-period).reduce((a, b) => a + b, 0) / period;
 }
 
-/**
- * Calculate VWAP
- */
-function calculateVWAP(candles: PriceData[], period: number = 20): number {
-  if (candles.length < period) {
-    return candles[candles.length - 1]?.close || 0;
-  }
-
-  const recent = candles.slice(-period);
+function calculateVWAP(candles: PriceData[]): number {
+  if (candles.length < 5) return candles[candles.length - 1]?.close || 0;
+  
+  const recent = candles.slice(-10);
   let totalPV = 0;
   let totalVolume = 0;
 
@@ -71,153 +59,102 @@ function calculateVWAP(candles: PriceData[], period: number = 20): number {
 }
 
 /**
- * Calculate Bollinger Bands
- */
-function calculateBollingerBands(
-  prices: number[],
-  period: number = 20,
-  stdDev: number = 2
-): { upper: number; middle: number; lower: number } {
-  const sma = calculateSMA(prices, period);
-  
-  const squaredDiffs = prices.slice(-period).map(p => Math.pow(p - sma, 2));
-  const variance = squaredDiffs.reduce((a, b) => a + b, 0) / period;
-  const standardDev = Math.sqrt(variance);
-
-  return {
-    upper: sma + stdDev * standardDev,
-    middle: sma,
-    lower: sma - stdDev * standardDev,
-  };
-}
-
-/**
- * Calculate ATR (Average True Range)
- */
-function calculateATR(candles: PriceData[], period: number = 14): number {
-  if (candles.length < period + 1) return 0;
-
-  const trValues: number[] = [];
-  
-  for (let i = candles.length - period; i < candles.length; i++) {
-    const candle = candles[i];
-    const prevClose = candles[i - 1]?.close || candle.open;
-    
-    const tr1 = candle.high - candle.low;
-    const tr2 = Math.abs(candle.high - prevClose);
-    const tr3 = Math.abs(candle.low - prevClose);
-    
-    trValues.push(Math.max(tr1, tr2, tr3));
-  }
-
-  return trValues.reduce((a, b) => a + b, 0) / period;
-}
-
-/**
- * Generate trading signal based on strategy
+ * AGGRESSIVE Signal Generator - Designed to trade frequently
  */
 export function generateSignal(
   strategy: Strategy,
   token: string,
   candles: PriceData[],
-  currentPrice: number,
-  volume24h: number
+  currentPrice: number
 ): Signal | null {
-  const params = strategy.params;
-
-  // Extract price series
-  const closes = candles.map(c => c.close);
-  const volumes = candles.map(c => c.volume);
-  
-  // Calculate indicators
-  const rsi = calculateRSI(closes, params.momentumPeriod);
-  const vwap = calculateVWAP(candles, 20);
-  const bb = calculateBollingerBands(closes, 20, 2);
-  const smaVolume = calculateSMA(volumes, 20);
-  const atr = calculateATR(candles, 14);
-
-  // Check volume filter
-  if (volume24h < params.minVolume24h) {
+  // Rate limiting - max 1 signal per 5 minutes per token
+  const now = Date.now();
+  const lastTime = lastSignalTime.get(token) || 0;
+  if (now - lastTime < MIN_SIGNAL_INTERVAL) {
     return null;
   }
 
+  // Need at least some data
+  if (candles.length < 10) {
+    return null;
+  }
+
+  const closes = candles.map(c => c.close);
+  const prevClose = closes[closes.length - 2] || currentPrice;
+  const priceChange = (currentPrice - prevClose) / prevClose;
+  
+  // Calculate RSI with shorter period for more signals
+  const rsi = calculateRSI(closes, Math.min(strategy.params.momentumPeriod, 10));
+  const vwap = calculateVWAP(candles);
+  
   let side: 'buy' | 'sell' | null = null;
-  let confidence = 0;
+  let confidence = 0.5;
   let reason = '';
 
-  // Strategy: RSI + Volume
-  if (strategy.indicators.includes('rsi')) {
-    if (rsi < params.entryRsiLower && volumes[volumes.length - 1] > smaVolume * params.volumeMultiplier) {
-      side = 'buy';
-      confidence = (params.entryRsiLower - rsi) / params.entryRsiLower * 0.5 +
-                   (volumes[volumes.length - 1] / smaVolume - 1) * 0.5;
-      reason = `RSI oversold (${rsi.toFixed(1)}) with volume spike`;
-    } else if (rsi > params.entryRsiUpper && volumes[volumes.length - 1] > smaVolume * params.volumeMultiplier) {
-      side = 'sell';
-      confidence = (rsi - params.entryRsiUpper) / (100 - params.entryRsiUpper) * 0.5 +
-                   (volumes[volumes.length - 1] / smaVolume - 1) * 0.5;
-      reason = `RSI overbought (${rsi.toFixed(1)}) with volume spike`;
-    }
+  // AGGRESSIVE Strategy 1: RSI Mean Reversion (relaxed thresholds)
+  if (rsi < strategy.params.entryRsiLower) {
+    side = 'buy';
+    confidence = Math.min(0.8, 0.5 + (strategy.params.entryRsiLower - rsi) / 50);
+    reason = `RSI oversold (${rsi.toFixed(1)})`;
+  } else if (rsi > strategy.params.entryRsiUpper) {
+    side = 'sell';
+    confidence = Math.min(0.8, 0.5 + (rsi - strategy.params.entryRsiUpper) / 50);
+    reason = `RSI overbought (${rsi.toFixed(1)})`;
   }
 
-  // Strategy: VWAP Breakout
-  if (strategy.indicators.includes('vwap') && !side) {
-    const prevClose = closes[closes.length - 2];
-    if (prevClose < vwap && currentPrice > vwap * 1.01) {
+  // AGGRESSIVE Strategy 2: Price momentum (no volume requirement)
+  if (!side && Math.abs(priceChange) > 0.005) { // 0.5% move
+    if (priceChange > 0) {
       side = 'buy';
       confidence = 0.6;
-      reason = `Break above VWAP (${vwap.toFixed(4)})`;
-    } else if (prevClose > vwap && currentPrice < vwap * 0.99) {
+      reason = `Upward momentum (+${(priceChange * 100).toFixed(2)}%)`;
+    } else {
       side = 'sell';
       confidence = 0.6;
-      reason = `Break below VWAP (${vwap.toFixed(4)})`;
+      reason = `Downward momentum (${(priceChange * 100).toFixed(2)}%)`;
     }
   }
 
-  // Strategy: Bollinger Band Mean Reversion
-  if (strategy.indicators.includes('bollinger_bands') && !side) {
-    if (currentPrice < bb.lower * 1.01 && rsi < 40) {
+  // AGGRESSIVE Strategy 3: VWAP deviation
+  if (!side) {
+    const vwapDev = (currentPrice - vwap) / vwap;
+    if (vwapDev < -0.01) { // 1% below VWAP
       side = 'buy';
-      confidence = 0.5 + (bb.lower - currentPrice) / bb.lower * 5;
-      reason = `Price near lower BB (${bb.lower.toFixed(4)})`;
-    } else if (currentPrice > bb.upper * 0.99 && rsi > 60) {
+      confidence = 0.55;
+      reason = `Below VWAP (${(vwapDev * 100).toFixed(2)}%)`;
+    } else if (vwapDev > 0.01) { // 1% above VWAP
       side = 'sell';
-      confidence = 0.5 + (currentPrice - bb.upper) / bb.upper * 5;
-      reason = `Price near upper BB (${bb.upper.toFixed(4)})`;
+      confidence = 0.55;
+      reason = `Above VWAP (+${(vwapDev * 100).toFixed(2)}%)`;
     }
   }
 
-  // Apply minimum confidence threshold
-  if (!side || confidence < 0.3) {
+  if (!side) {
     return null;
   }
 
-  // Cap confidence at 1.0
-  confidence = Math.min(confidence, 1.0);
+  // Record signal time
+  lastSignalTime.set(token, now);
+
+  logger.info(`🎯 SIGNAL: ${token} ${side.toUpperCase()} @ $${currentPrice.toFixed(6)} - ${reason}`);
 
   return {
     token,
     side,
     confidence,
     price: currentPrice,
-    size: 0, // Will be set by position sizer
+    size: 0,
     reason,
     timestamp: new Date(),
     metadata: {
       rsi,
       vwap,
-      bbUpper: bb.upper,
-      bbLower: bb.lower,
-      atr,
-      volumeRatio: volumes[volumes.length - 1] / smaVolume,
+      priceChange,
       strategy: strategy.name,
     },
   };
 }
 
-/**
- * Calculate position size based on confidence and risk params
- */
 export function calculatePositionSize(
   signal: Signal,
   capitalUsd: number,
@@ -229,19 +166,8 @@ export function calculatePositionSize(
     return 0;
   }
 
-  // Base size on available capital and signal confidence
-  const baseSize = capitalUsd * 0.1; // 10% of capital per trade
-  const confidenceMultiplier = signal.confidence;
+  // Fixed 20% of capital per trade for consistent testing
+  const size = capitalUsd * 0.20;
   
-  let size = baseSize * confidenceMultiplier;
-  
-  // Cap at max position size
-  size = Math.min(size, maxPositionUsd);
-  
-  // Ensure minimum trade size
-  size = Math.max(size, 50);
-
-  return size;
+  return Math.min(Math.max(Math.round(size), 50), maxPositionUsd);
 }
-
-export { calculateRSI, calculateVWAP, calculateBollingerBands, calculateATR };

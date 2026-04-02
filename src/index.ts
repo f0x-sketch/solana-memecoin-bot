@@ -1,9 +1,9 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import { Connection, Keypair } from '@solana/web3.js';
 import { createLogger } from './utils/logger';
 import { initializeDatabase, closeDatabase } from './utils/database';
+import { startDashboard } from './dashboard/server';
 import { ResearchLoop } from './research/loop';
 
 const logger = createLogger('Main');
@@ -11,10 +11,17 @@ const logger = createLogger('Main');
 /**
  * Autoresearch Solana - Main Entry Point
  * 
+ * Features:
+ * - Autonomous strategy research and optimization
+ * - Paper trading mode (safe testing)
+ * - Live trading (requires configuration)
+ * - Web dashboard for monitoring (http://localhost:3000)
+ *
  * Usage:
  *   npm run paper    # Run paper trading only
  *   npm run research # Run autonomous research loop
  *   npm run live     # Run live trading (requires DRY_RUN=false)
+ *   docker-compose up -d  # Run with Docker
  */
 
 async function main() {
@@ -25,12 +32,17 @@ async function main() {
 
   const mode = process.env.MODE || 'research';
   const dryRun = process.env.DRY_RUN !== 'false';
+  const dashboardPort = parseInt(process.env.DASHBOARD_PORT || '3000');
 
   logger.info(`Mode: ${mode.toUpperCase()}`);
   logger.info(`Dry Run: ${dryRun ? 'YES (paper trading)' : 'NO (LIVE MONEY)'}`);
+  logger.info(`Dashboard: http://localhost:${dashboardPort}\n`);
 
   // Initialize database
   await initializeDatabase();
+
+  // Start web dashboard
+  startDashboard(dashboardPort);
 
   switch (mode) {
     case 'research':
@@ -54,7 +66,7 @@ async function main() {
  */
 async function runResearchMode(): Promise<void> {
   logger.info('\n🧠 Starting Autonomous Research Loop...\n');
-  
+
   const loop = new ResearchLoop({
     experimentDurationHours: parseInt(process.env.EXPERIMENT_DURATION_HOURS || '6'),
     minWinRatePct: parseFloat(process.env.MIN_WIN_RATE_PCT || '55'),
@@ -63,13 +75,19 @@ async function runResearchMode(): Promise<void> {
 
   await loop.start();
 
-  // Keep running until interrupted
+  // Keep process alive
+  setInterval(() => {}, 1000);
+
+  // Handle graceful shutdown
   process.on('SIGINT', async () => {
     logger.info('\n\n👋 Shutting down research loop...');
     loop.stop();
     await closeDatabase();
     process.exit(0);
   });
+
+  // Keep running indefinitely
+  await new Promise(() => {});
 }
 
 /**
@@ -77,10 +95,10 @@ async function runResearchMode(): Promise<void> {
  */
 async function runPaperMode(): Promise<void> {
   logger.info('\n📊 Starting Paper Trading Session...\n');
-  
+
   // Import and run research loop with shorter duration
   const { ResearchLoop } = await import('./research/loop');
-  
+
   const loop = new ResearchLoop({
     experimentDurationHours: 1, // Just 1 hour for paper mode
     minWinRatePct: 0, // No promotion criteria in paper mode
@@ -88,6 +106,20 @@ async function runPaperMode(): Promise<void> {
   });
 
   await loop.start();
+
+  // Keep process alive
+  setInterval(() => {}, 1000);
+
+  // Handle graceful shutdown
+  process.on('SIGINT', async () => {
+    logger.info('\n\n👋 Shutting down paper trading...');
+    loop.stop();
+    await closeDatabase();
+    process.exit(0);
+  });
+
+  // Keep running indefinitely
+  await new Promise(() => {});
 }
 
 /**

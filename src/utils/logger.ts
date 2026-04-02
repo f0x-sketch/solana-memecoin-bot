@@ -8,6 +8,15 @@ if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }
 
+// Safe stringify to handle circular references
+function safeStringify(obj: any): string {
+  try {
+    return JSON.stringify(obj);
+  } catch (e) {
+    return '[Circular or invalid JSON]';
+  }
+}
+
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
   format: winston.format.combine(
@@ -25,7 +34,10 @@ const logger = winston.createLogger({
         winston.format.printf(({ level, message, timestamp, ...metadata }) => {
           let msg = `${timestamp} [${level}]: ${message}`;
           if (Object.keys(metadata).length > 0) {
-            msg += ` ${JSON.stringify(metadata)}`;
+            const metaStr = safeStringify(metadata);
+            if (metaStr !== '{}') {
+              msg += ` ${metaStr}`;
+            }
           }
           return msg;
         })

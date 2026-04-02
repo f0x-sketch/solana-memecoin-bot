@@ -4,13 +4,6 @@ import { insertTrade, updateTrade, getOpenTrades, getDb } from '../utils/databas
 
 const logger = createLogger('PaperTrader');
 
-/**
- * Paper Trading Engine
- * 
- * Simulates trades in real-time without using real money.
- * Tracks entry/exit prices and calculates PnL.
- */
-
 interface PaperTradeConfig {
   initialCapital: number;
   maxPositions: number;
@@ -38,31 +31,38 @@ export class PaperTrader {
     this.strategy = strategy;
     this.config = {
       initialCapital: config.initialCapital || 1000,
-      maxPositions: config.maxPositions || 5,
+      maxPositions: config.maxPositions || 3, // REDUCED to 3 for volatile tokens
     };
     this.capital = this.config.initialCapital;
 
     logger.info(`PaperTrader initialized for experiment ${experimentId}`);
     logger.info(`Strategy: ${strategy.name} v${strategy.version}`);
     logger.info(`Initial capital: $${this.config.initialCapital}`);
+    logger.info(`Max positions: ${this.config.maxPositions}`);
   }
 
   /**
-   * Execute a new paper trade
+   * Execute a new paper trade - FIXED position tracking
    */
   async enterTrade(signal: Signal, sizeUsd: number): Promise<Trade | null> {
-    // Check position limits
+    // Check position limits - STRICT
     if (this.openTrades.size >= this.config.maxPositions) {
-      logger.warn('Max positions reached, skipping trade');
+      logger.debug(`Max positions (${this.config.maxPositions}) reached, skipping ${signal.token}`);
       return null;
     }
 
-    // Check if already in position for this token
+    // Check if already in position for this token - prevent duplicate
     for (const trade of this.openTrades.values()) {
       if (trade.token === signal.token) {
-        logger.warn(`Already in position for ${signal.token}, skipping`);
+        logger.debug(`Already in position for ${signal.token}, skipping`);
         return null;
       }
+    }
+
+    // Validate size
+    if (sizeUsd < 20 || sizeUsd > this.capital * 0.5) {
+      logger.debug(`Invalid size $${sizeUsd}, skipping`);
+      return null;
     }
 
     const trade: Trade = {
@@ -79,27 +79,32 @@ export class PaperTrader {
       isPaper: true,
     };
 
-    // Save to database
-    const tradeId = await insertTrade(trade);
-    trade.id = tradeId;
+    try {
+      // Save to database
+      const tradeId = await insertTrade(trade);
+      trade.id = tradeId;
 
-    this.openTrades.set(tradeId, trade);
+      this.openTrades.set(tradeId, trade);
 
-    logger.info('📊 PAPER TRADE ENTERED:', {
-      tradeId,
-      token: trade.token,
-      side: trade.side,
-      entryPrice: trade.entryPrice,
-      sizeUsd: trade.sizeUsd,
-      reason: signal.reason,
-    });
+      logger.info('📊 PAPER TRADE ENTERED:', {
+        tradeId,
+        token: trade.token,
+        side: trade.side,
+        entryPrice: trade.entryPrice.toFixed(6),
+        sizeUsd: trade.sizeUsd,
+        openPositions: this.openTrades.size,
+        reason: signal.reason,
+      });
 
-    return trade;
+      return trade;
+    } catch (error) {
+      logger.error('Failed to enter trade:', error);
+      return null;
+    }
   }
 
   /**
-   * Update open trades with new price data
-   * Check for stop loss, take profit, or timeout
+   * Update open trades with new price data - FIXED exit logic
    */
   async updatePrices(priceUpdate: PriceUpdate): Promise<void> {
     const { token, price } = priceUpdate;
@@ -176,32 +181,37 @@ export class PaperTrader {
     trade.pnlUsd = pnlUsd;
     trade.pnlPct = pnlPct;
 
-    await updateTrade(tradeId, {
-      exit_price: exitPrice,
-      exit_time: trade.exitTime.toISOString(),
-      status: 'closed',
-      exit_reason: reason,
-      pnl_usd: pnlUsd,
-      pnl_pct: pnlPct,
-    });
+    try {
+      await updateTrade(tradeId, {
+        exit_price: exitPrice,
+        exit_time: trade.exitTime.toISOString(),
+        status: 'closed',
+        exit_reason: reason,
+        pnl_usd: pnlUsd,
+        pnl_pct: pnlPct,
+      });
 
-    // Update capital
-    this.capital += pnlUsd;
+      // Update capital
+      this.capital += pnlUsd;
 
-    this.openTrades.delete(tradeId);
+      this.openTrades.delete(tradeId);
 
-    const emoji = pnlUsd >= 0 ? '✅' : '❌';
-    logger.info(`${emoji} PAPER TRADE CLOSED:`, {
-      tradeId,
-      token: trade.token,
-      side: trade.side,
-      entryPrice: trade.entryPrice,
-      exitPrice,
-      pnlUsd: pnlUsd.toFixed(2),
-      pnlPct: `${(pnlPct * 100).toFixed(2)}%`,
-      reason,
-      capital: `$${this.capital.toFixed(2)}`,
-    });
+      const emoji = pnlUsd >= 0 ? '✅' : '❌';
+      logger.info(`${emoji} PAPER TRADE CLOSED:`, {
+        tradeId,
+        token: trade.token,
+        side: trade.side,
+        entryPrice: trade.entryPrice.toFixed(6),
+        exitPrice: exitPrice.toFixed(6),
+        pnlUsd: pnlUsd.toFixed(2),
+        pnlPct: `${(pnlPct * 100).toFixed(2)}%`,
+        reason,
+        capital: `$${this.capital.toFixed(2)}`,
+        openPositions: this.openTrades.size,
+      });
+    } catch (error) {
+      logger.error('Failed to exit trade:', error);
+    }
   }
 
   /**
@@ -298,9 +308,6 @@ export class PaperTrader {
     };
   }
 
-  /**
-   * Get summary of current state
-   */
   getState(): {
     openPositions: number;
     capital: number;
@@ -315,9 +322,10 @@ export class PaperTrader {
     };
   }
 
-  /**
-   * Close all open positions
-   */
+  getOpenPositionCount(): number {
+    return this.openTrades.size;
+  }
+
   async closeAllPositions(currentPrices: Map<string, number>): Promise<void> {
     for (const [tradeId, trade] of this.openTrades) {
       const price = currentPrices.get(trade.token);
