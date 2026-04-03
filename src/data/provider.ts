@@ -8,13 +8,12 @@ const logger = createLogger('DataProvider');
 /**
  * Unified Data Provider with Smart Rate Limiting
  * 
- * Primary: CoinGecko (free tier or API key)
- * Fallback: Birdeye (requires API key)
+ * Priority:
+ * 1. Jupiter Price API v3 (free, no key, higher rate limits)
+ * 2. CoinGecko with API key (fallback)
+ * 3. CoinGecko free tier (last resort)
  * 
  * No mock data - fails if no real data available.
- * 
- * To get higher rate limits, get a free CoinGecko API key:
- * https://www.coingecko.com/en/developers/dashboard
  */
 
 interface TokenPrice {
@@ -25,6 +24,22 @@ interface TokenPrice {
   change24h?: number;
   source: string;
 }
+
+// Token mint addresses for Jupiter
+const JUPITER_MINTS: Record<string, string> = {
+  'WIF': 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm',
+  'BONK': 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+  'PEPE': 'nB93Wg2saBn2CPp5r4vTcK9V6Q3LbjnQZq8Z9QjJmx',
+  'SOL': 'So11111111111111111111111111111111111111112',
+  'JUP': 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',
+  'RAY': '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R',
+  'JTO': 'jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2r2AeCF',
+  'PYTH': 'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt',
+  'RENDER': 'rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof',
+  'TNSR': 'TNSRxcUxoT9xBGQdezRHm6eUeNboDccgifV62PkBVu8',
+};
+
+const JUPITER_API_URL = 'https://lite-api.jup.ag/price/v3';
 
 export class DataProvider {
   private birdeye: BirdeyeAPI;
@@ -44,25 +59,36 @@ export class DataProvider {
         : undefined;
 
     logger.info('DataProvider initialized');
-    logger.info(`Primary: CoinGecko ${this.coinGeckoKey ? '(API key - 30 RPM)' : '(free tier - 10 RPM)'}`);
+    logger.info(`Primary: Jupiter Price API v3 (free, no key required)`);
+    logger.info(`Fallback: CoinGecko ${this.coinGeckoKey ? '(API key)' : '(free tier)'}`);
     logger.info(`Birdeye: ${this.birdeye.isEnabled() ? '✅ enabled' : '❌ not configured'}`);
-    
-    if (!this.coinGeckoKey) {
-      logger.warn('⚠️  No CoinGecko API key - using free tier (10 RPM)');
-      logger.info('   Get free key: https://www.coingecko.com/en/developers/dashboard');
-    }
   }
 
   /**
    * Get prices - NEVER returns mock data
-   * 
-   * Get free API key for higher rate limits:
-   * https://www.coingecko.com/en/developers/dashboard
    */
   async getPrices(tokens: string[]): Promise<TokenPrice[]> {
     const errors: string[] = [];
 
-    // PRIMARY: CoinGecko with API key (higher rate limits: 30-50 RPM)
+    // PRIMARY: Jupiter Price API v3 (free, no key, higher rate limits)
+    try {
+      logger.debug('Trying Jupiter Price API v3...');
+      const prices = await rateLimiter.execute(
+        'jupiter',
+        () => this.fetchJupiterPrices(tokens),
+        5
+      );
+      if (prices.length > 0) {
+        logger.info(`Jupiter prices: ${prices.map(p => `${p.token}=$${p.price.toFixed(6)}`).join(', ')}`);
+        return prices;
+      }
+    } catch (error: any) {
+      const errorMsg = error.message || error.response?.data?.error || 'Unknown Jupiter error';
+      errors.push(`Jupiter: ${errorMsg}`);
+      logger.warn('Jupiter failed:', errorMsg);
+    }
+
+    // FALLBACK 1: CoinGecko with API key (higher rate limits: 30-50 RPM)
     if (this.coinGeckoKey) {
       try {
         logger.debug('Trying CoinGecko with API key...');
@@ -82,7 +108,7 @@ export class DataProvider {
       }
     }
 
-    // FALLBACK: CoinGecko free tier (no API key, lower rate limits: 10-30 RPM)
+    // FALLBACK 2: CoinGecko free tier (no API key, lower rate limits: 10-30 RPM)
     try {
       logger.debug('Trying CoinGecko free tier...');
       const prices = await rateLimiter.execute(
@@ -120,6 +146,47 @@ export class DataProvider {
 
     logger.warn(`Using synthetic OHLCV for ${token}`);
     return this.generateSyntheticOHLCV(token, prices[0].price, limit);
+  }
+
+  /**
+   * Fetch prices from Jupiter lite-api v3
+   * Endpoint: https://lite-api.jup.ag/price/v3
+   */
+  private async fetchJupiterPrices(tokens: string[]): Promise<TokenPrice[]> {
+    const mints = tokens
+      .map(t => JUPITER_MINTS[t])
+      .filter(Boolean)
+      .join(',');
+
+    if (!mints) {
+      throw new Error('No valid Jupiter mint addresses found');
+    }
+
+    const response = await axios.get(
+      `${JUPITER_API_URL}?ids=${mints}`,
+      { timeout: 10000 }
+    );
+
+    const prices: TokenPrice[] = [];
+    const data = response.data || {};
+
+    for (const [mint, info] of Object.entries(data)) {
+      const token = Object.entries(JUPITER_MINTS).find(([, m]) => m === mint)?.[0];
+      if (!token) continue;
+
+      const priceInfo = info as any;
+      if (!priceInfo.usdPrice) continue;
+
+      prices.push({
+        token,
+        price: parseFloat(priceInfo.usdPrice),
+        timestamp: Date.now(),
+        change24h: priceInfo.priceChange24h,
+        source: 'jupiter',
+      });
+    }
+
+    return prices;
   }
 
   private async fetchCoinGeckoPrices(tokens: string[], useApiKey: boolean = true): Promise<TokenPrice[]> {
