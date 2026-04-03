@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { createLogger } from '../utils/logger';
 import { BirdeyeAPI } from './birdeye-api';
+import { JupiterPriceAPI } from './jupiter-price';
 import { rateLimiter } from './rate-limiter';
 
 const logger = createLogger('DataProvider');
@@ -9,7 +10,7 @@ const logger = createLogger('DataProvider');
  * Unified Data Provider with Smart Rate Limiting
  * 
  * Priority:
- * 1. Birdeye (best for Solana, cached, rate-limited)
+ * 1. Jupiter Price API (free, 600 req/10min, no key needed)
  * 2. CoinGecko (fallback, rate-limited)
  * 
  * No mock data - fails if no real data available.
@@ -24,12 +25,28 @@ interface TokenPrice {
   source: string;
 }
 
+// Token mint addresses for Jupiter
+const JUPITER_MINTS: Record<string, string> = {
+  'WIF': 'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm',
+  'BONK': 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+  'PEPE': 'nB93Wg2saBn2CPp5r4vTcK9V6Q3LbjnQZq8Z9QjJmx',
+  'SOL': 'So11111111111111111111111111111111111111112',
+  'JUP': 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',
+  'RAY': '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R',
+  'JTO': 'jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2r2AeCF',
+  'PYTH': 'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt',
+  'RENDER': 'rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof',
+  'TNSR': 'TNSRxcUxoT9xBGQdezRHm6eUeNboDccgifV62PkBVu8',
+};
+
 export class DataProvider {
   private birdeye: BirdeyeAPI;
+  private jupiter: JupiterPriceAPI;
   private coinGeckoKey?: string;
 
   constructor() {
     this.birdeye = new BirdeyeAPI();
+    this.jupiter = new JupiterPriceAPI();
     
     const rawCgKey = process.env.COINGECKO_API_KEY || '';
     // Accept any non-empty key that doesn't contain placeholder text
@@ -42,8 +59,9 @@ export class DataProvider {
         : undefined;
 
     logger.info('DataProvider initialized');
+    logger.info(`Jupiter: ✅ primary source (free, 600 req/10min)`);
     logger.info(`Birdeye: ${this.birdeye.isEnabled() ? '✅ enabled' : '❌ not configured'}`);
-    logger.info(`CoinGecko: ${this.coinGeckoKey ? '✅ API key set' : '❌ no API key'} (${rawCgKey ? 'raw key present but invalid' : 'no raw key'})`);
+    logger.info(`CoinGecko: ${this.coinGeckoKey ? '✅ API key set' : '❌ no API key (fallback only)'}`);
   }
 
   /**
@@ -52,9 +70,27 @@ export class DataProvider {
   async getPrices(tokens: string[]): Promise<TokenPrice[]> {
     const errors: string[] = [];
 
-    // Try CoinGecko with API key first (higher rate limits)
+    // PRIMARY: Jupiter Price API (free, no key, higher rate limits)
+    try {
+      logger.debug('Trying Jupiter Price API...');
+      const prices = await rateLimiter.execute(
+        'jupiter',
+        () => this.fetchJupiterPrices(tokens),
+        5
+      );
+      if (prices.length > 0) {
+        logger.info(`Jupiter prices: ${prices.map(p => `${p.token}=$${p.price.toFixed(6)}`).join(', ')}`);
+        return prices;
+      }
+    } catch (error: any) {
+      errors.push(`Jupiter: ${error.message}`);
+      logger.warn('Jupiter failed:', error.message);
+    }
+
+    // FALLBACK 1: CoinGecko with API key (higher rate limits)
     if (this.coinGeckoKey) {
       try {
+        logger.info('Trying CoinGecko with API key...');
         const prices = await rateLimiter.execute(
           'coingecko',
           () => this.fetchCoinGeckoPrices(tokens, true),
@@ -67,9 +103,9 @@ export class DataProvider {
       }
     }
 
-    // Fallback: CoinGecko free tier (no API key, lower rate limits)
+    // FALLBACK 2: CoinGecko free tier (no API key, lower rate limits)
     try {
-      logger.info('Trying CoinGecko free tier (no API key)...');
+      logger.info('Trying CoinGecko free tier...');
       const prices = await rateLimiter.execute(
         'coingecko-free',
         () => this.fetchCoinGeckoPrices(tokens, false),
@@ -97,14 +133,55 @@ export class DataProvider {
     limit: number = 50
   ): Promise<Array<{timestamp: number, open: number, high: number, low: number, close: number, volume: number}>> {
     // Fallback: generate from current price
-    // Note: Birdeye OHLCV disabled - using synthetic data
     const prices = await this.getPrices([token]);
     if (!prices[0]) {
       throw new Error(`Cannot get OHLCV - no price for ${token}`);
     }
 
-    logger.warn(`Using synthetic OHLCV for ${token} (Birdeye unavailable)`);
+    logger.warn(`Using synthetic OHLCV for ${token}`);
     return this.generateSyntheticOHLCV(token, prices[0].price, limit);
+  }
+
+  /**
+   * Fetch prices from Jupiter
+   */
+  private async fetchJupiterPrices(tokens: string[]): Promise<TokenPrice[]> {
+    const mints = tokens
+      .map(t => JUPITER_MINTS[t])
+      .filter(Boolean)
+      .join(',');
+
+    if (!mints) {
+      throw new Error('No valid Jupiter mint addresses found');
+    }
+
+    const response = await axios.get(
+      `https://api.jup.ag/price/v2?ids=${mints}`,
+      { timeout: 10000 }
+    );
+
+    const prices: TokenPrice[] = [];
+    const data = response.data?.data || {};
+
+    for (const [mint, info] of Object.entries(data)) {
+      const token = Object.entries(JUPITER_MINTS).find(([, m]) => m === mint)?.[0];
+      if (!token) continue;
+
+      const priceInfo = info as any;
+      if (!priceInfo.price) continue;
+
+      prices.push({
+        token,
+        price: parseFloat(priceInfo.price),
+        timestamp: Date.now(),
+        change24h: priceInfo.extraInfo?.last1HourPrice 
+          ? ((parseFloat(priceInfo.price) - parseFloat(priceInfo.extraInfo.last1HourPrice)) / parseFloat(priceInfo.extraInfo.last1HourPrice)) * 100
+          : undefined,
+        source: 'jupiter',
+      });
+    }
+
+    return prices;
   }
 
   private async fetchCoinGeckoPrices(tokens: string[], useApiKey: boolean = true): Promise<TokenPrice[]> {
@@ -215,6 +292,10 @@ export class DataProvider {
 
   getBirdeye(): BirdeyeAPI {
     return this.birdeye;
+  }
+
+  getJupiter(): JupiterPriceAPI {
+    return this.jupiter;
   }
 }
 

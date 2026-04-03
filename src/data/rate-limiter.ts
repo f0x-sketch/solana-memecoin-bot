@@ -37,6 +37,9 @@ export class RateLimiter {
   private processing: Map<string, boolean> = new Map();
 
   constructor() {
+    // Jupiter: 600 requests per 10 minutes = 60 RPM
+    this.configs.set('jupiter', { requestsPerMinute: 60, burstSize: 5 });
+    
     // Birdeye: 60 RPM = 1 request per second
     this.configs.set('birdeye', { requestsPerMinute: 60, burstSize: 3 });
     
