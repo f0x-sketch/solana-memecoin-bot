@@ -24,14 +24,15 @@ app.get('/api/health', (req: Request, res: Response) => {
 // Get bot configuration
 app.get('/api/config', (req: Request, res: Response) => {
   res.json({
-    dryRun: process.env.DRY_RUN === 'true',
+    dryRun: process.env.DRY_RUN !== 'false',
     initialCapital: parseFloat(process.env.INITIAL_CAPITAL_USD || '1000'),
     maxPositionSize: parseFloat(process.env.MAX_POSITION_SIZE_USD || '200'),
     maxPositions: parseInt(process.env.MAX_POSITIONS || '2'),
     stopLoss: parseFloat(process.env.STOP_LOSS_PCT || '2'),
     takeProfit: parseFloat(process.env.TAKE_PROFIT_PCT || '3'),
-    tokens: ['WIF', 'BONK'],
+    tokens: (process.env.TOKENS || 'SOL,BONK,JUP,RAY').split(',').map(t => t.trim()),
     walletConfigured: !!process.env.SOLANA_WALLET_ADDRESS,
+    mode: process.env.MODE || 'research',
   });
 });
 
@@ -131,6 +132,30 @@ app.get('/api/positions', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error('Failed to get positions:', error);
     res.status(500).json({ error: 'Failed to fetch positions' });
+  }
+});
+
+// Get current active experiment
+app.get('/api/experiment/current', async (req: Request, res: Response) => {
+  try {
+    const db = getDb();
+    
+    const experiment = await new Promise((resolve, reject) => {
+      db.get(`
+        SELECT * FROM experiments 
+        WHERE status = 'active' OR end_time IS NULL
+        ORDER BY created_at DESC 
+        LIMIT 1
+      `, [], (err, row) => {
+        if (err) reject(err);
+        else resolve(row || null);
+      });
+    });
+    
+    res.json(experiment || { status: 'no_active_experiment' });
+  } catch (error) {
+    logger.error('Failed to get current experiment:', error);
+    res.status(500).json({ error: 'Failed to fetch current experiment' });
   }
 });
 

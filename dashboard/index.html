@@ -199,6 +199,7 @@
     <div class="tabs">
       <div class="tab active" onclick="showTab('trades')">Recent Trades</div>
       <div class="tab" onclick="showTab('positions')">Open Positions</div>
+      <div class="tab" onclick="showTab('experiment')">Current Strategy</div>
       <div class="tab" onclick="showTab('config')">Configuration</div>
       <div class="tab" onclick="showTab('logs')">Logs</div>
     </div>
@@ -244,6 +245,13 @@
             <tr><td colspan="7" style="text-align: center; color: #64748b;">No open positions</td></tr>
           </tbody>
         </table>
+      </div>
+    </div>
+    
+    <div id="experiment-tab" class="section hidden">
+      <h2>Current Strategy Experiment</h2>
+      <div id="experiment-info">
+        <div style="text-align: center; color: #64748b; padding: 40px;">Loading experiment data...</div>
       </div>
     </div>
     
@@ -390,6 +398,71 @@
       }
     }
     
+    // Fetch current experiment
+    async function fetchExperiment() {
+      try {
+        const response = await fetch('/api/experiment/current');
+        const exp = await response.json();
+        
+        const container = document.getElementById('experiment-info');
+        
+        if (!exp || exp.status === 'no_active_experiment') {
+          container.innerHTML = '<div style="text-align: center; color: #64748b; padding: 40px;">No active experiment running</div>';
+          return;
+        }
+        
+        const params = exp.params ? JSON.parse(exp.params) : {};
+        const createdAt = exp.created_at ? new Date(exp.created_at).toLocaleString() : 'Unknown';
+        const status = exp.status || 'active';
+        const isPromoted = exp.is_promoted === 1;
+        
+        container.innerHTML = `
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div>
+              <h3 style="color: #22d3ee; margin-bottom: 15px;">Strategy Details</h3>
+              <div style="background: #0f172a; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                <div style="margin-bottom: 10px;"><strong>Name:</strong> ${exp.name || 'Unknown'}</div>
+                <div style="margin-bottom: 10px;"><strong>ID:</strong> <code>${exp.id ? exp.id.slice(0, 8) : 'N/A'}</code></div>
+                <div style="margin-bottom: 10px;"><strong>Status:</strong> <span style="color: ${status === 'active' ? '#22c55e' : '#64748b'}">${status.toUpperCase()}</span></div>
+                <div style="margin-bottom: 10px;"><strong>Started:</strong> ${createdAt}</div>
+                ${isPromoted ? '<div style="color: #22c55e; font-weight: bold;">⭐ PROMOTED TO LIVE</div>' : ''}
+              </div>
+              
+              <h4 style="color: #94a3b8; margin-bottom: 10px;">Hypothesis</h4>
+              <p style="background: #0f172a; padding: 15px; border-radius: 8px; color: #e2e8f0; line-height: 1.6;">
+                ${exp.hypothesis || 'No hypothesis recorded'}
+              </p>
+            </div>
+            
+            <div>
+              <h3 style="color: #22d3ee; margin-bottom: 15px;">Parameters</h3>
+              <div style="background: #0f172a; padding: 15px; border-radius: 8px;">
+                ${Object.entries(params).map(([key, value]) => `
+                  <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #334155;">
+                    <span style="color: #94a3b8;">${key.replace(/_/g, ' ').toUpperCase()}</span>
+                    <span style="color: #e2e8f0; font-family: monospace;">${value}</span>
+                  </div>
+                `).join('')}
+              </div>
+              
+              ${exp.end_time ? `
+                <h4 style="color: #22d3ee; margin: 20px 0 10px;">Results</h4>
+                <div style="background: #0f172a; padding: 15px; border-radius: 8px;">
+                  <div style="margin-bottom: 10px;"><strong>Trades:</strong> ${exp.trades_count || 0}</div>
+                  <div style="margin-bottom: 10px;"><strong>Win Rate:</strong> ${exp.win_rate ? exp.win_rate.toFixed(1) : 0}%</div>
+                  <div style="margin-bottom: 10px;"><strong>PnL:</strong> $${exp.total_pnl_usd ? exp.total_pnl_usd.toFixed(2) : '0.00'}</div>
+                  <div style="margin-bottom: 10px;"><strong>Sharpe:</strong> ${exp.sharpe_ratio ? exp.sharpe_ratio.toFixed(2) : '0.00'}</div>
+                </div>
+              ` : '<div style="margin-top: 20px; padding: 15px; background: #1e293b; border-radius: 8px; text-align: center; color: #64748b;">Experiment in progress...</div>'}
+            </div>
+          </div>
+        `;
+      } catch (error) {
+        console.error('Failed to fetch experiment:', error);
+        document.getElementById('experiment-info').innerHTML = '<div style="text-align: center; color: #ef4444; padding: 40px;">Failed to load experiment data</div>';
+      }
+    }
+    
     // Refresh logs
     async function refreshLogs() {
       try {
@@ -439,12 +512,14 @@
     fetchStats();
     fetchTrades();
     fetchPositions();
+    fetchExperiment();
     
     // Auto-refresh every 30 seconds
     setInterval(() => {
       fetchStats();
       fetchTrades();
       fetchPositions();
+      fetchExperiment();
     }, 30000);
   </script>
 </body>
