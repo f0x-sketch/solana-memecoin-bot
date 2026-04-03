@@ -164,6 +164,9 @@ export class ResearchLoop {
 
   private lastSignalTime: Map<string, number> = new Map();
   private readonly SIGNAL_COOLDOWN_MS = 30000; // 30 seconds between signals for same token
+  private signalsGeneratedThisCycle: number = 0;
+  private readonly MAX_SIGNALS_PER_CYCLE = 2; // Max 2 signals per price update cycle
+  private lastCycleTime: number = 0;
 
   /**
    * Handle price update - check for signals
@@ -171,8 +174,21 @@ export class ResearchLoop {
   private async onPriceUpdate(token: string, price: number): Promise<void> {
     if (!this.activeStrategy || !this.paperTrader) return;
 
-    // Rate limiting - don't check too frequently
+    // Reset signal counter for new cycle
     const now = Date.now();
+    if (now - this.lastCycleTime > 5000) { // 5 second window = one cycle
+      this.signalsGeneratedThisCycle = 0;
+      this.lastCycleTime = now;
+    }
+
+    // Check if we've already generated max signals this cycle
+    if (this.signalsGeneratedThisCycle >= this.MAX_SIGNALS_PER_CYCLE) {
+      // Just update prices for exit checks
+      await this.paperTrader.updatePrices({ token, price, timestamp: new Date() });
+      return;
+    }
+
+    // Rate limiting - don't check too frequently for same token
     const lastTime = this.lastSignalTime.get(token) || 0;
     if (now - lastTime < this.SIGNAL_COOLDOWN_MS) {
       // Just update prices for exit checks
@@ -205,6 +221,7 @@ export class ResearchLoop {
 
       if (signal) {
         this.lastSignalTime.set(token, now);
+        this.signalsGeneratedThisCycle++;
         
         // Calculate position size
         const state = this.paperTrader.getState();

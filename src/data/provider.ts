@@ -165,28 +165,50 @@ export class DataProvider {
     count: number
   ): Array<{timestamp: number, open: number, high: number, low: number, close: number, volume: number}> {
     const candles: Array<{timestamp: number, open: number, high: number, low: number, close: number, volume: number}> = [];
-    let lastClose = currentPrice;
     const now = Date.now();
     const interval = 5 * 60 * 1000;
-
-    for (let i = count - 1; i >= 0; i--) {
-      const timestamp = now - i * interval;
-      const change = (Math.random() - 0.5) * 0.05; // 5% volatility
-      const open = lastClose;
-      const close = i === count - 1 ? currentPrice : open * (1 + change);
-      const high = Math.max(open, close) * 1.02;
-      const low = Math.min(open, close) * 0.98;
-      
-      candles.push({ 
-        timestamp, 
-        open, 
-        high, 
-        low, 
-        close, 
-        volume: 500000 + Math.random() * 2000000 
-      });
-      if (i < count - 1) lastClose = close;
+    
+    // Generate realistic price movement ending at currentPrice
+    // Work backwards from current price
+    let prices: number[] = [currentPrice];
+    
+    for (let i = 1; i < count; i++) {
+      // Random walk with 2% volatility
+      const change = (Math.random() - 0.5) * 0.04; // ±2%
+      const prevPrice = prices[prices.length - 1];
+      prices.push(prevPrice * (1 + change));
     }
+    
+    // Reverse so oldest first
+    prices = prices.reverse();
+    
+    // Build candles from prices
+    for (let i = 0; i < count - 1; i++) {
+      const timestamp = now - (count - 1 - i) * interval;
+      const open = prices[i];
+      const close = prices[i + 1];
+      const high = Math.max(open, close) * (1 + Math.random() * 0.01);
+      const low = Math.min(open, close) * (1 - Math.random() * 0.01);
+      
+      candles.push({
+        timestamp,
+        open,
+        high,
+        low,
+        close,
+        volume: 500000 + Math.random() * 2000000,
+      });
+    }
+    
+    // Add final candle at current time
+    candles.push({
+      timestamp: now,
+      open: prices[prices.length - 1],
+      high: currentPrice * 1.01,
+      low: currentPrice * 0.99,
+      close: currentPrice,
+      volume: 500000 + Math.random() * 2000000,
+    });
 
     return candles;
   }
