@@ -10,6 +10,18 @@ import {
 
 const logger = createLogger('ExperimentGenerator');
 
+// All available tokens for trading
+const ALL_TOKENS = [
+  'SOL', 'BONK', 'JUP', 'RAY', 'WIF', 'BOME', 'POPCAT', 'MEW',
+  'JTO', 'PYTH', 'RENDER', 'TNSR', 'W', 'HNT', 'FIDA'
+];
+
+// Meme tokens (higher volatility)
+const MEME_TOKENS = ['BONK', 'WIF', 'BOME', 'POPCAT', 'MEW'];
+
+// Infrastructure/DeFi tokens
+const DEFI_TOKENS = ['SOL', 'JUP', 'RAY', 'JTO', 'PYTH', 'RENDER', 'TNSR', 'W', 'HNT', 'FIDA'];
+
 /**
  * Generates aggressive strategy experiments to ensure trades execute
  */
@@ -66,7 +78,7 @@ export class ExperimentGenerator {
         minVolume24h: 1000,       // Very low requirement
       },
       indicators: ['rsi'],
-      tokens: ['WIF', 'BONK'],
+      tokens: MEME_TOKENS,
       timeframes: ['5m'],
       createdAt: new Date(),
     };
@@ -96,7 +108,7 @@ export class ExperimentGenerator {
         minVolume24h: 1000,
       },
       indicators: ['momentum'],
-      tokens: ['WIF', 'BONK'],
+      tokens: ALL_TOKENS,
       timeframes: ['5m'],
       createdAt: new Date(),
     };
@@ -126,7 +138,7 @@ export class ExperimentGenerator {
         minVolume24h: 1000,
       },
       indicators: ['vwap'],
-      tokens: ['WIF', 'BONK'],
+      tokens: DEFI_TOKENS,
       timeframes: ['5m'],
       createdAt: new Date(),
     };
@@ -156,7 +168,7 @@ export class ExperimentGenerator {
         minVolume24h: 1000,
       },
       indicators: ['price_change'],
-      tokens: ['WIF', 'BONK'],
+      tokens: ALL_TOKENS,
       timeframes: ['5m'],
       createdAt: new Date(),
     };
