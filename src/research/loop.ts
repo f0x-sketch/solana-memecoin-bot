@@ -41,7 +41,10 @@ export class ResearchLoop {
   private cronJob?: any;
 
   constructor(config?: Partial<ResearchConfig>) {
-    const envTokens = process.env.TOKENS?.split(',').map(t => t.trim()) || ['SOL', 'BONK', 'JUP', 'RAY'];
+    const envTokens = process.env.TOKENS?.split(',').map(t => t.trim()) || [
+      'SOL', 'BONK', 'JUP', 'RAY', 'WIF', 'BOME', 'POPCAT', 'MEW', 
+      'JTO', 'PYTH', 'RENDER', 'TNSR', 'W', 'HNT', 'FIDA'
+    ];
     
     this.config = {
       experimentDurationHours: config?.experimentDurationHours || 6,

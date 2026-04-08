@@ -26,6 +26,7 @@ app.get('/api/health', (req: Request, res: Response) => {
 
 // Get bot configuration
 app.get('/api/config', (req: Request, res: Response) => {
+  const defaultTokens = ['SOL', 'BONK', 'JUP', 'RAY', 'WIF', 'BOME', 'POPCAT', 'MEW', 'JTO', 'PYTH', 'RENDER', 'TNSR', 'W', 'HNT', 'FIDA'];
   res.json({
     dryRun: process.env.DRY_RUN !== 'false',
     initialCapital: parseFloat(process.env.INITIAL_CAPITAL_USD || '1000'),
@@ -33,7 +34,7 @@ app.get('/api/config', (req: Request, res: Response) => {
     maxPositions: parseInt(process.env.MAX_POSITIONS || '2'),
     stopLoss: parseFloat(process.env.STOP_LOSS_PCT || '2'),
     takeProfit: parseFloat(process.env.TAKE_PROFIT_PCT || '3'),
-    tokens: (process.env.TOKENS || 'SOL,BONK,JUP,RAY').split(',').map(t => t.trim()),
+    tokens: (process.env.TOKENS || defaultTokens.join(',')).split(',').map(t => t.trim()),
     walletConfigured: !!process.env.SOLANA_WALLET_ADDRESS,
     mode: process.env.MODE || 'research',
   });
