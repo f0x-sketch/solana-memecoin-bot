@@ -143,8 +143,8 @@ app.get('/api/experiment/current', async (req: Request, res: Response) => {
     const experiment = await new Promise((resolve, reject) => {
       db.get(`
         SELECT * FROM experiments 
-        WHERE status = 'active' OR end_time IS NULL
-        ORDER BY created_at DESC 
+        WHERE status = 'active' OR status = 'running' OR end_time IS NULL
+        ORDER BY start_time DESC 
         LIMIT 1
       `, [], (err, row) => {
         if (err) reject(err);
@@ -167,7 +167,7 @@ app.get('/api/experiments', async (req: Request, res: Response) => {
     const experiments = await new Promise((resolve, reject) => {
       db.all(`
         SELECT * FROM experiments 
-        ORDER BY created_at DESC 
+        ORDER BY start_time DESC 
         LIMIT 20
       `, [], (err, rows) => {
         if (err) reject(err);

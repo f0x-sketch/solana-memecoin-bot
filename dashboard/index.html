@@ -412,7 +412,7 @@
         }
         
         const params = exp.params ? JSON.parse(exp.params) : {};
-        const createdAt = exp.created_at ? new Date(exp.created_at).toLocaleString() : 'Unknown';
+        const createdAt = exp.start_time ? new Date(exp.start_time).toLocaleString() : 'Unknown';
         const status = exp.status || 'active';
         const isPromoted = exp.is_promoted === 1;
         
