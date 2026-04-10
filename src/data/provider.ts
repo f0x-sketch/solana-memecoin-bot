@@ -50,6 +50,7 @@ const JUPITER_API_URL = 'https://lite-api.jup.ag/price/v3';
 export class DataProvider {
   private birdeye: BirdeyeAPI;
   private coinGeckoKey?: string;
+  private useCoinGecko: boolean;
 
   constructor() {
     this.birdeye = new BirdeyeAPI();
@@ -63,10 +64,13 @@ export class DataProvider {
       rawCgKey.length > 10
         ? rawCgKey 
         : undefined;
+    
+    // Disable CoinGecko if explicitly set or if we've hit rate limits
+    this.useCoinGecko = process.env.USE_COINGECKO !== 'false' && !!this.coinGeckoKey;
 
     logger.info('DataProvider initialized');
-    logger.info(`Primary: Jupiter Price API v3 (free, no key required)`);
-    logger.info(`Fallback: CoinGecko ${this.coinGeckoKey ? '(API key)' : '(free tier)'}`);
+    logger.info(`Primary: Jupiter Price API v3 (free, no key required, 120 RPM)`);
+    logger.info(`CoinGecko: ${this.useCoinGecko ? '✅ enabled as fallback' : '❌ disabled (set USE_COINGECKO=true to enable)'}`);
     logger.info(`Birdeye: ${this.birdeye.isEnabled() ? '✅ enabled' : '❌ not configured'}`);
   }
 
@@ -94,8 +98,8 @@ export class DataProvider {
       logger.warn('Jupiter failed:', errorMsg);
     }
 
-    // FALLBACK 1: CoinGecko with API key (higher rate limits: 30-50 RPM)
-    if (this.coinGeckoKey) {
+    // FALLBACK 1: CoinGecko with API key (only if enabled)
+    if (this.useCoinGecko && this.coinGeckoKey) {
       try {
         logger.debug('Trying CoinGecko with API key...');
         const prices = await rateLimiter.execute(
@@ -111,25 +115,35 @@ export class DataProvider {
         const errorMsg = error.message || 'Unknown CoinGecko error';
         errors.push(`CoinGecko (with key): ${errorMsg}`);
         logger.warn('CoinGecko (with key) failed:', errorMsg);
+        
+        // Auto-disable CoinGecko if we hit rate limits
+        if (error.response?.status === 429 || errorMsg.includes('quota') || errorMsg.includes('limit')) {
+          logger.error('🚫 CoinGecko API quota exceeded - disabling CoinGecko fallback');
+          this.useCoinGecko = false;
+        }
       }
+    } else if (!this.useCoinGecko) {
+      logger.debug('CoinGecko disabled - skipping fallback');
     }
 
-    // FALLBACK 2: CoinGecko free tier (no API key, lower rate limits: 10-30 RPM)
-    try {
-      logger.debug('Trying CoinGecko free tier...');
-      const prices = await rateLimiter.execute(
-        'coingecko-free',
-        () => this.fetchCoinGeckoPrices(tokens, false),
-        10
-      );
-      if (prices.length > 0) {
-        logger.info(`CoinGecko (free) prices: ${prices.map(p => `${p.token}=$${p.price.toFixed(6)}`).join(', ')}`);
-        return prices;
+    // FALLBACK 2: CoinGecko free tier (only if enabled and no API key)
+    if (this.useCoinGecko && !this.coinGeckoKey) {
+      try {
+        logger.debug('Trying CoinGecko free tier...');
+        const prices = await rateLimiter.execute(
+          'coingecko-free',
+          () => this.fetchCoinGeckoPrices(tokens, false),
+          10
+        );
+        if (prices.length > 0) {
+          logger.info(`CoinGecko (free) prices: ${prices.map(p => `${p.token}=$${p.price.toFixed(6)}`).join(', ')}`);
+          return prices;
+        }
+      } catch (error: any) {
+        const errorMsg = error.message || 'Unknown CoinGecko error';
+        errors.push(`CoinGecko (free): ${errorMsg}`);
+        logger.warn('CoinGecko (free) failed:', errorMsg);
       }
-    } catch (error: any) {
-      const errorMsg = error.message || 'Unknown CoinGecko error';
-      errors.push(`CoinGecko (free): ${errorMsg}`);
-      logger.warn('CoinGecko (free) failed:', errorMsg);
     }
 
     // No data available

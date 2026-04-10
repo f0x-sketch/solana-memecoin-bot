@@ -37,8 +37,8 @@ export class RateLimiter {
   private processing: Map<string, boolean> = new Map();
 
   constructor() {
-    // Jupiter lite-api: ~100 RPM (conservative estimate for free tier)
-    this.configs.set('jupiter', { requestsPerMinute: 60, burstSize: 5 });
+    // Jupiter lite-api: ~150 RPM free tier (very generous)
+    this.configs.set('jupiter', { requestsPerMinute: 120, burstSize: 10 });
     
     // Birdeye: 60 RPM = 1 request per second
     this.configs.set('birdeye', { requestsPerMinute: 60, burstSize: 3 });
